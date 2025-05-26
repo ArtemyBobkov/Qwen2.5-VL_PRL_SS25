@@ -28,13 +28,22 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
+
+import numpy as np
+torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+
 import qwenvl.train.trainer
 from trainer import replace_qwen2_vl_attention_class
 
 from transformers import (
     Qwen2VLForConditionalGeneration,
+    # Qwen2_5_VLForConditionalGeneration,
+)
+from qwenvl.train.modeling_qwen2_5_vl import (
     Qwen2_5_VLForConditionalGeneration,
 )
+
+from qwenvl.train.processing_qwen2_5_vl import Qwen2_5_VLProcessor
 from qwenvl.data.data_qwen import make_supervised_data_module
 
 from qwenvl.train.argument import (
@@ -103,18 +112,7 @@ def train(attn_implementation="flash_attention_2"):
     local_rank = training_args.local_rank
     os.makedirs(training_args.output_dir, exist_ok=True)
 
-    if "qwen2.5" in model_args.model_name_or_path.lower():
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=training_args.cache_dir,
-            attn_implementation=attn_implementation,
-            torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-        )
-        data_args.image_processor = AutoProcessor.from_pretrained(
-            model_args.model_name_or_path,
-        ).image_processor
-        data_args.model_type = "qwen2.5vl"
-    else:
+    if "qwen2" in model_args.model_name_or_path.lower():
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
@@ -125,6 +123,20 @@ def train(attn_implementation="flash_attention_2"):
             model_args.model_name_or_path,
         )
         data_args.model_type = "qwen2vl"
+    else:
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+            attn_implementation=attn_implementation,
+            torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+        )
+        data_args.image_processor = Qwen2_5_VLProcessor.from_pretrained(
+            model_args.model_name_or_path,
+        ).image_processor
+        #data_args.image_processor = AutoProcessor.from_pretrained(
+        #    model_args.model_name_or_path,
+        #).image_processor
+        data_args.model_type = "qwen2.5vl"
 
     if data_args.data_flatten:
         replace_qwen2_vl_attention_class()

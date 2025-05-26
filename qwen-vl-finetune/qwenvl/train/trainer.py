@@ -8,7 +8,7 @@ from flash_attn.flash_attn_interface import flash_attn_varlen_func
 from torch.utils.data import DataLoader, Sampler
 from transformers import Trainer
 from transformers.cache_utils import Cache
-from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+from qwenvl.train.modeling_qwen2_5_vl import (
     Qwen2_5_VisionTransformerPretrainedModel,
     Qwen2_5_VLModel,
 )
@@ -23,6 +23,8 @@ from transformers.trainer import (
     is_sagemaker_mp_enabled,
 )
 from transformers.trainer_utils import seed_worker
+
+import qwenvl.train.modeling_qwen2_5_vl as modeling_qwen2_5_vl
 
 
 def _flash_attention_forward(
@@ -140,10 +142,10 @@ def replace_qwen2_vl_attention_class():
     transformers.models.qwen2_vl.modeling_qwen2_vl.Qwen2VLModel._update_causal_mask = (
         _update_causal_mask
     )
-    transformers.models.qwen2_5_vl.modeling_qwen2_5_vl._flash_attention_forward = (
+    modeling_qwen2_5_vl._flash_attention_forward = (
         _flash_attention_forward
     )
-    transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLModel._update_causal_mask = (
+    modeling_qwen2_5_vl.Qwen2_5_VLModel._update_causal_mask = (
         _update_causal_mask
     )
 

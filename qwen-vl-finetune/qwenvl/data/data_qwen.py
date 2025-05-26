@@ -41,6 +41,20 @@ def rank0_print(*args):
 def read_jsonl(path):
     with open(path, "r") as f:
         return [json.loads(line) for line in f]
+    
+    
+def expand2square(pil_img, background_color):
+    width, height = pil_img.size
+    if width == height:
+        return pil_img
+    elif width > height:
+        result = Image.new(pil_img.mode, (width, width), background_color)
+        result.paste(pil_img, (0, (width - height) // 2))
+        return result
+    else:
+        result = Image.new(pil_img.mode, (height, height), background_color)
+        result.paste(pil_img, ((height - width) // 2, 0))
+        return result
 
 
 def preprocess_qwen_2_visual(
@@ -217,8 +231,49 @@ class LazySupervisedDataset(Dataset):
 
     def process_image_unified(self, image_file):
         processor = copy.deepcopy(self.data_args.image_processor)
-        image = Image.open(image_file).convert("RGB")
-
+        image = Image.open(image_file)
+        
+        channels = len(image.getbands())
+        if channels == 1:
+            img = np.array(image, dtype=np.int32)
+            height, width = img.shape
+            three_channel_array = np.zeros((height, width, 3), dtype=np.int32)
+            three_channel_array[:, :, 0] = (img // 1024) * 4
+            three_channel_array[:, :, 1] = (img // 32) * 8
+            three_channel_array[:, :, 2] = (img % 32) * 8
+            three_channel_array = three_channel_array.astype(np.uint8)
+            image = Image.fromarray(three_channel_array, 'RGB')
+        else:
+            image = image.convert("RGB")
+        
+        # Apply square padding if configured (same as data_utils.py)
+        if getattr(self.data_args, 'image_aspect_ratio', None) == 'pad':
+            image = expand2square(image, tuple(int(x * 255) for x in processor.image_mean))
+        
+        # Additional image processing modes from Conversation class
+        image_process_mode = getattr(self.data_args, 'image_process_mode', None)
+        if image_process_mode == "Pad":
+            image = expand2square(image, (122, 116, 104))
+        elif image_process_mode == "Resize":
+            image = image.resize((336, 336))
+        elif image_process_mode in ["Default", "Crop"]:
+            pass
+        # If no image_process_mode specified, keep existing behavior
+        
+        # Aspect ratio processing from Conversation class (applied after other processing)
+        max_hw, min_hw = max(image.size), min(image.size)
+        aspect_ratio = max_hw / min_hw
+        max_len, min_len = 800, 400
+        shortest_edge = int(min(max_len / aspect_ratio, min_len, min_hw))
+        longest_edge = int(shortest_edge * aspect_ratio)
+        W, H = image.size
+        if longest_edge != max(image.size):
+            if H > W:
+                H, W = longest_edge, shortest_edge
+            else:
+                H, W = shortest_edge, longest_edge
+            image = image.resize((W, H))
+        
         visual_processed = processor.preprocess(image, return_tensors="pt")
         image_tensor = visual_processed["pixel_values"]
         if isinstance(image_tensor, List):

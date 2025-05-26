@@ -21,6 +21,8 @@ class DataArguments:
     min_pixels: int = field(default=28 * 28 * 16)
     video_max_frame_pixels: int = field(default=32 * 28 * 28)
     video_min_frame_pixels: int = field(default=4 * 28 * 28)
+    image_process_mode: str = field(default=None)
+    image_aspect_ratio: str = field(default="pad")
 
 
 @dataclass
