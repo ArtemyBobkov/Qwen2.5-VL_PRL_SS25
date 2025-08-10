@@ -65,6 +65,8 @@ if is_flash_attn_2_available():
     from transformers.modeling_flash_attention_utils import _flash_attention_forward
 else:
     flash_attn_varlen_func = None
+    
+from pathlib import Path
 
 
 logger = logging.get_logger(__name__)
@@ -1522,6 +1524,19 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.rope_deltas = None  # cache rope_deltas here
 
+        # Add linear projection layer for precomputed embeddings
+        # This projects from precomputed embedding dim to vision output dim (3584)
+        # self.precomputed_embedding_projection = None
+        # if hasattr(config, 'precomputed_embedding_dim') and config.precomputed_embedding_dim > 0:
+        #     # print("CONFIG", config)
+        #     self.precomputed_embedding_projection = nn.Linear(
+        #         config.precomputed_embedding_dim, 
+        #         config.vision_config.out_hidden_size,  # 3584 for 3B model
+        #         bias=False
+        #     )
+            
+        #     nn.init.xavier_uniform_(self.precomputed_embedding_projection.weight)
+
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -1741,6 +1756,7 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         rope_deltas: Optional[torch.LongTensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
         second_per_grid_ts: Optional[torch.Tensor] = None,
+        precomputed_image_embeds: Optional[torch.FloatTensor] = None,
     ) -> Union[Tuple, Qwen2_5_VLCausalLMOutputWithPast]:
         r"""
         Args:
@@ -1789,10 +1805,22 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if inputs_embeds is None:
+            # print("INPUTS EMBEDS IS NONE", hasattr(self, "precomputed_embedding_projection"), "PRECOMPUTED IMAGE EMBEDS", precomputed_image_embeds)
+            # if not hasattr(self, "precomputed_embedding_projection") or self.precomputed_embedding_projection is None:
             inputs_embeds = self.model.embed_tokens(input_ids)
-            if pixel_values is not None:
-                pixel_values = pixel_values.type(self.visual.dtype)
-                image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+            
+            # Handle precomputed image embeddings
+            if precomputed_image_embeds is not None:
+                # print("precomputed_embedding_projection used in modeling", self.precomputed_embedding_projection)
+                precomputed_image_embeds = precomputed_image_embeds.requires_grad_(True)
+                
+                # Project precomputed embeddings to vision output dimensions
+                if self.precomputed_embedding_projection is not None:
+                    image_embeds = self.precomputed_embedding_projection(precomputed_image_embeds)
+                    # print("projected image_embeds", image_embeds.shape)
+                else:
+                    image_embeds = precomputed_image_embeds
+                    
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
                 n_image_features = image_embeds.shape[0]
                 # if n_image_tokens != n_image_features:
@@ -1806,7 +1834,31 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                 image_mask = mask_expanded.to(inputs_embeds.device)
 
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+                # print("PRECOMPUTED IMAGE EMBEDS", image_embeds.shape, image_embeds.mean(), image_embeds.std())
                 inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+                # print("INPUTS EMBEDS", inputs_embeds.shape, inputs_embeds.mean(), inputs_embeds.std())
+                
+            # Handle pixel values (original vision encoder path)
+            elif pixel_values is not None:
+                pixel_values = pixel_values.type(self.visual.dtype)
+                image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+                # print("VISUAL IMAGE EMBEDS", image_embeds.shape, image_embeds.requires_grad, pixel_values.requires_grad)
+                n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
+                n_image_features = image_embeds.shape[0]
+                if n_image_tokens != n_image_features:
+                    raise ValueError(
+                        f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}, image token id: {self.config.image_token_id}"
+                    )
+
+                mask = input_ids == self.config.image_token_id
+                mask_unsqueezed = mask.unsqueeze(-1)
+                mask_expanded = mask_unsqueezed.expand_as(inputs_embeds)
+                image_mask = mask_expanded.to(inputs_embeds.device)
+
+                image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+                # print("IMAGE EMBEDS", image_embeds.shape, image_embeds.mean(), image_embeds.std())
+                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+                # print("INPUTS EMBEDS", inputs_embeds.shape, inputs_embeds.mean(), inputs_embeds.std())
 
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.dtype)
@@ -1845,6 +1897,11 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                     attention_mask,
                 )
                 self.rope_deltas = rope_deltas
+                # If using precomputed visual embeddings, set their position ids to zero
+                if precomputed_image_embeds is not None:
+                    # print(f"Precomputed embeddings in forward pass modeling qwen")
+                    # Assume precomputed visual tokens are marked by image_token_id
+                    position_ids[position_ids == self.config.image_token_id] = 0  
             # then use the prev pre-calculated rope-deltas to get the correct position ids
             else:
                 batch_size, seq_length, _ = inputs_embeds.shape
@@ -1918,6 +1975,7 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         image_grid_thw=None,
         video_grid_thw=None,
         second_per_grid_ts=None,
+        precomputed_image_embeds=None,
         **kwargs,
     ):
         # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
@@ -1982,6 +2040,8 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                 "video_grid_thw": video_grid_thw,
                 "cache_position": cache_position,
                 "second_per_grid_ts": second_per_grid_ts,
+                "precomputed_image_embeds": precomputed_image_embeds,
+                "real_grid_thw": real_grid_thw,
             }
         )
         return model_inputs
@@ -2030,7 +2090,7 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         if expand_size == 1:
             return input_ids, model_kwargs
 
-        visual_keys = ["pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw", "second_per_grid_ts"]
+        visual_keys = ["pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw", "second_per_grid_ts", "precomputed_image_embeds"]
 
         def _expand_dict_for_generation_visual(dict_to_expand):
             image_grid_thw = model_kwargs.get("image_grid_thw", None)

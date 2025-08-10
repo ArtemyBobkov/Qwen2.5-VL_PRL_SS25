@@ -36,6 +36,16 @@ SPATIAL_QA = {
     "data_path": "/lustre/scratch/data/s94falmu_hpc-PLRSpatial/Bunny-v1_0-data/finetune/images",
 }
 
+SPATIAL_QA_2D3DS = {
+    "annotation_path": "/lustre/scratch/data/s94falmu_hpc-PLRSpatial/SpatialQA_2d3ds/spatialqa_2d3ds_qwen.json",
+    "data_path": "/lustre/scratch/data/s94falmu_hpc-PLRSpatial/SpatialQA_2d3ds",
+}
+
+SPATIAL_QA_UNIVLG = {
+    "annotation_path": "/lustre/scratch/data/s94falmu_hpc-PLRSpatial/SpatialQA_univlg_modified/SpatialQA_univlg_modified.json",
+    "data_path": "/lustre/scratch/data/s94falmu_hpc-PLRSpatial/Bunny-v1_0-data/finetune/images",
+}
+
 data_dict = {
     "cambrian_737k": CAMBRIAN_737K,
     "mp_doc": MP_DOC,
@@ -46,6 +56,8 @@ data_dict = {
     "bunny_v1_0_finetune": BUNNY_V1_0_FINETUNE,
     "bunny_v1_0_finetune%10": BUNNY_V1_0_FINETUNE,
     "spatial_qa": SPATIAL_QA,
+    "spatial_qa_2d3ds": SPATIAL_QA_2D3DS,
+    "spatial_qa_univlg": SPATIAL_QA_UNIVLG,
 }
 
 

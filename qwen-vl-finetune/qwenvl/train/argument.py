@@ -9,6 +9,7 @@ class ModelArguments:
     tune_mm_llm: bool = field(default=False)
     tune_mm_mlp: bool = field(default=False)
     tune_mm_vision: bool = field(default=False)
+    precomputed_embedding_dim: Optional[int] = field(default=None, metadata={"help": "Dimension of precomputed embeddings. If provided, will add a projection layer to map precomputed embeddings to model's hidden size."})
 
 @dataclass
 class DataArguments:
@@ -23,6 +24,8 @@ class DataArguments:
     video_min_frame_pixels: int = field(default=4 * 28 * 28)
     image_process_mode: str = field(default=None)
     image_aspect_ratio: str = field(default="pad")
+    precomputed_embeddings: bool = field(default=None, metadata={"help": "Use precomputed embeddings instead of processing images/videos directly"})
+    precomputed_embeddings_path: Optional[str] = field(default=None, metadata={"help": "Path to precomputed embeddings."})
 
 
 @dataclass

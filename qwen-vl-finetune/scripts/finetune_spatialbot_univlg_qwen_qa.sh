@@ -7,31 +7,34 @@ WORLD_SIZE=1
 MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 MASTER_PORT=${MASTER_PORT:-$(shuf -i 20001-29999 -n 1)}
 NNODES=${WORLD_SIZE:1}
-NPROC_PER_NODE=2
+NPROC_PER_NODE=1
 
 # DeepSpeed configuration
 deepspeed=./scripts/zero3.json
 
 # Model configuration
-llm=/lustre/scratch/data/s94falmu_hpc-PLRSpatial/output_qwen_bunny_336x336/checkpoint-41667  # Using HuggingFace model ID
+llm=Qwen/Qwen2.5-VL-3B-Instruct
 
 # Training hyperparameters
 lr=2e-7
-batch_size=12
-grad_accum_steps=3
+batch_size=1
+grad_accum_steps=1
 
 # Training entry point
 entry_file=qwenvl/train/train_qwen.py
 
 # Dataset configuration (replace with public dataset names)
-datasets=bunny_v1_0_finetune
+datasets=spatial_qa_2d3ds
 
 # Output configuration
-run_name="qwen2_5vl-bunny-finetune"
-output_dir=/lustre/scratch/data/s94falmu_hpc-PLRSpatial/finetuned_qwen_bunny_multigpu
+run_name="qwen2_5vl-spatial-qa-2d3ds"
+output_dir=/lustre/scratch/data/s94falmu_hpc-PLRSpatial/qwen_univlg_spatial_qa_2d3ds
 
 # nvidia-smi > ./nvidia-smi.log
 # nvcc --version > ./nvcc-version.log
+
+# export PYTHONPATH=$PYTHONPATH:$(realpath /home/s67abobk_hpc/univlg)
+export PYTHONPATH="/usr/local/lib/python3.10/dist-packages/:$PYTHONPATH"
 
 # Training arguments
 args="
@@ -39,9 +42,9 @@ args="
     --model_name_or_path "${llm}" \
     --dataset_use ${datasets} \
     --data_flatten True \
-    --tune_mm_vision True \
+    --tune_mm_vision False \
     --tune_mm_mlp True \
-    --tune_mm_llm True \
+    --tune_mm_llm False \
     --bf16 \
     --output_dir ${output_dir} \
     --num_train_epochs 1 \
@@ -66,10 +69,12 @@ args="
     --run_name ${run_name} \
     --report_to wandb \
     --precomputed_embeddings True \
-    "
+    --precomputed_embedding_dim 256
+"
 
 # Launch training
-torchrun --nproc_per_node=${NPROC_PER_NODE} \
+~/.local/bin/uv run /home/s67abobk_hpc/univlg/.venv/bin/python3 -m torch.distributed.run --nproc_per_node=${NPROC_PER_NODE} \
          --master_addr=${MASTER_ADDR} \
          --master_port=${MASTER_PORT} \
          ${entry_file} ${args}
+    

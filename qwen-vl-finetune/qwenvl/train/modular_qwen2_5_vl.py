@@ -607,6 +607,7 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
         rope_deltas: Optional[torch.LongTensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
         second_per_grid_ts: Optional[torch.Tensor] = None,
+        precomputed_image_embeds: Optional[torch.FloatTensor] = None,
     ) -> Union[Tuple, Qwen2_5_VLCausalLMOutputWithPast]:
         r"""
         Args:
@@ -656,7 +657,10 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
 
         if inputs_embeds is None:
             inputs_embeds = self.model.embed_tokens(input_ids)
-            if pixel_values is not None:
+            if hasattr(self, "precomputed_embedding_projection") and self.precomputed_embedding_projection is not None:
+                print("precomputed_embedding_projection used in modular", self.precomputed_embedding_projection)
+                image_embeds = self.precomputed_embedding_projection(precomputed_image_embeds)
+            elif pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.dtype)
                 image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
@@ -711,6 +715,11 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
                     attention_mask,
                 )
                 self.rope_deltas = rope_deltas
+                # If using precomputed visual embeddings, set their position ids to zero
+                if image_grid_thw is not None and hasattr(self, "precomputed_embedding_projection") and self.precomputed_embedding_projection is not None:
+                    print(f"Precomputed embeddings in forward pass modular qwen")
+                    # Assume precomputed visual tokens are marked by image_token_id
+                    position_ids[input_ids == self.config.image_token_id] = 0  
             # then use the prev pre-calculated rope-deltas to get the correct position ids
             else:
                 batch_size, seq_length, _ = inputs_embeds.shape
@@ -784,6 +793,7 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
         image_grid_thw=None,
         video_grid_thw=None,
         second_per_grid_ts=None,
+        precomputed_image_embeds=None,
         **kwargs,
     ):
         # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
@@ -848,6 +858,7 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
                 "video_grid_thw": video_grid_thw,
                 "cache_position": cache_position,
                 "second_per_grid_ts": second_per_grid_ts,
+                "precomputed_image_embeds": precomputed_image_embeds,
             }
         )
         return model_inputs

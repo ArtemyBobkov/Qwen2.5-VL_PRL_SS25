@@ -28,7 +28,7 @@ datasets=spatial_qa
 
 # Output configuration
 run_name="qwen2_5vl-spatial-qa-finetune"
-output_dir=/lustre/scratch/data/s94falmu_hpc-PLRSpatial/finetuned_qwen_sqa_clean_run
+output_dir=/lustre/scratch/data/s94falmu_hpc-PLRSpatial/finetuned_qwen_sqa_clean_run_new
 
 # nvidia-smi > ./nvidia-smi.log
 # nvcc --version > ./nvcc-version.log
@@ -39,9 +39,9 @@ args="
     --model_name_or_path "${llm}" \
     --dataset_use ${datasets} \
     --data_flatten True \
-    --tune_mm_vision True \
+    --tune_mm_vision False \
     --tune_mm_mlp True \
-    --tune_mm_llm True \
+    --tune_mm_llm False \
     --bf16 \
     --output_dir ${output_dir} \
     --num_train_epochs 1 \
@@ -68,7 +68,7 @@ args="
     "
 
 # Launch training
-torchrun --nproc_per_node=${NPROC_PER_NODE} \
+~/.local/bin/uv run torchrun --nproc_per_node=${NPROC_PER_NODE} \
          --master_addr=${MASTER_ADDR} \
          --master_port=${MASTER_PORT} \
          ${entry_file} ${args}
